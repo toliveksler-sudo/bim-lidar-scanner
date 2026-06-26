@@ -16,13 +16,23 @@ jobs:
         run: brew install xcodegen
 
       - name: Generate Xcode project
-        run: xcodegen generate
+        run: |
+          xcodegen generate --spec project.yml
+          ls -la
+          ls -la *.xcodeproj/ || echo "xcodeproj not in root"
+          find . -name "*.xcodeproj" -maxdepth 3
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode_16.3.app
 
       - name: Build (unsigned)
         run: |
+          PROJ=$(find . -name "*.xcodeproj" -maxdepth 2 | head -1)
+          SCHEME=$(basename "$PROJ" .xcodeproj)
+          echo "Project: $PROJ  Scheme: $SCHEME"
           xcodebuild \
-            -project BIMLidar.xcodeproj \
-            -scheme BIMLidar \
+            -project "$PROJ" \
+            -scheme "$SCHEME" \
             -configuration Release \
             -sdk iphoneos \
             -derivedDataPath ./build \
@@ -30,12 +40,19 @@ jobs:
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGNING_ALLOWED=NO \
             ENABLE_BITCODE=NO \
-            | xcpretty || true
+            build 2>&1 | tail -50
 
-      - name: Package IPA
+      - name: Find and package .app
         run: |
-          APP_PATH=$(find ./build -name "*.app" -path "*/Release-iphoneos/*" | head -1)
-          echo "Found app: $APP_PATH"
+          echo "=== Build directory structure ==="
+          find ./build -name "*.app" 2>/dev/null || echo "No .app found"
+          APP_PATH=$(find ./build -name "*.app" | head -1)
+          if [ -z "$APP_PATH" ]; then
+            echo "ERROR: No .app file found after build"
+            find ./build -type f | head -30
+            exit 1
+          fi
+          echo "Found: $APP_PATH"
           mkdir -p Payload
           cp -r "$APP_PATH" Payload/
           zip -r BIMLidar.ipa Payload/
